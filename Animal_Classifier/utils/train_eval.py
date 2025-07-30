@@ -6,6 +6,7 @@ from torch.utils.tensorboard import SummaryWriter
 import os
 from tqdm import tqdm
 
+
 """模型训练主流程"""
 def train_model(
         model,
@@ -15,7 +16,7 @@ def train_model(
         device,
         save_path='../checkpoints/checkpoint.pth',    # 模型保存路径（.pth 文件）
         resume=False,    # 是否从断点（保存的模型）恢复训练（bool）
-        log_dit='../logs',    # TensorBoard 日志保存目录
+        log_dir='../logs',    # TensorBoard 日志保存目录
         lr=0.001,
 ):
     # ------------------------------------------
@@ -32,7 +33,7 @@ def train_model(
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
     # TensorBoard 初始化
-    writer = SummaryWriter(log_dir=log_dit)
+    writer = SummaryWriter(log_dir=log_dir)
 
     # 初始化最佳验证准确率和起始轮次
     best_acc = 0.0
@@ -50,7 +51,10 @@ def train_model(
         best_acc = checkpoint['best_acc']                     # 加载历史最佳准确率
         print(f"✅ Resumed from epoch {start_epoch}, best val acc = {best_acc:.4f}")
     else:
-        print("❌ No checkpoint found, will start first time of training")
+        print("📦 Starting first-time training: loading pretrained ResNet18 weights")
+        from torchvision.models import resnet18, ResNet18_Weights
+        base_model = resnet18(weights=ResNet18_Weights.DEFAULT)
+        model.load_state_dict(base_model.state_dict(), strict=False)
 
     # ------------------------------------------
     # 3. 训练主循环
@@ -76,7 +80,7 @@ def train_model(
             # 统计训练信息
             _, preds = torch.max(outputs.data, 1)    # 获取预测结果
             running_loss += loss.item()              # 累加损失
-            correct += (preds==labels).sum.item()    # 累加正确预测数
+            correct += (preds==labels).sum().item()    # 累加正确预测数
             total += labels.size(0)                  # 累加总样本数
 
             # 在进度条中显示当前损失和准确率
@@ -88,7 +92,7 @@ def train_model(
         # ----------------------------------
         # 4. 验证阶段：使用验证函数
         # ----------------------------------
-        val_loss, val_acc = validate_model(model, val_loader, criterion, device)
+        val_loss, val_acc, _, _ = validate_model(model, val_loader, criterion, device)
 
         # ----------------------------------
         # 5. TensorBoard记录
@@ -135,6 +139,10 @@ def validate_model(model, val_loader, criterion, device):
     correct = 0         # 正确预测的样本数
     loss_total = 0.0    # 总损失
 
+    # 用于生成报表
+    y_true_all = []    # 记录所有真实标签
+    y_pred_all = []    # 记录所有预测标签
+
     with torch.no_grad():    # 关闭梯度计算
         for images, labels in val_loader:
             images, labels = images.to(device), labels.to(device)
@@ -146,7 +154,12 @@ def validate_model(model, val_loader, criterion, device):
             correct += (preds == labels).sum().item()
             total += labels.size(0)
 
+            # 🍬 注意需要将标签从GPU移动到CPU，再转换为numpy数组
+            y_true_all.extend(labels.cpu().numpy())    # 添加真实标签
+            y_pred_all.extend(preds.cpu().numpy())
+
     avg_loss = loss_total / len(val_loader)    # 验证集平均损失
     avg_acc = correct / total                  # 验证集平均准确率
+
     print(f"Validation -> Loss:{avg_loss:.4f} | Acc:{avg_acc:.4f}")
-    return avg_loss, avg_acc
+    return avg_loss, avg_acc, y_true_all, y_pred_all

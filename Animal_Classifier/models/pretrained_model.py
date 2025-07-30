@@ -55,7 +55,9 @@ class CBAM(nn.Module):
         # 空间注意力
         avg_out = torch.mean(x, dim=1, keepdim=True)
         max_out, _ = torch.max(x, dim=1, keepdim=True)
-        spatial_att = self.sigmoid(torch.cat([avg_out, max_out], dim=1))
+        concat_out = torch.cat([avg_out, max_out], dim=1)
+        # 先卷积，再sigmoid
+        spatial_att = self.sigmoid(self.conv_spatial(concat_out))
         x = x * spatial_att
 
         return x
@@ -76,7 +78,7 @@ class MyResNet18(nn.Module):
                 param.requires_grad = False
 
         # 提取特征部分：去掉原模型的fc
-        self.features = nn.Sequential(*layers[:2])    # 抽出所有卷积层部分
+        self.features = nn.Sequential(*layers[:-2])    # 抽出所有卷积层部分
         # 添加CBAM注意力机制
         self.cbam = CBAM(512)    # ResNet18最后一个block输出通道数是512
 
@@ -86,8 +88,7 @@ class MyResNet18(nn.Module):
             nn.Flatten(),
             nn.BatchNorm1d(512),
             nn.Dropout(dropout_p),
-            nn.Linear(512, num_classes),
-            nn.Softmax(dim=1)
+            nn.Linear(512, num_classes)
         )
 
     def forward(self, x):
